@@ -155,6 +155,21 @@ static/     one HTML file, no build step, no dependencies. ?panel for the drop-d
 
 Only one server can bind the port; a second copy refuses to start, so you never get two Game Mode watchers.
 
+## Tests
+
+From the repository folder on Windows, with Python 3.11 or newer:
+
+```console
+python -m unittest discover -s tests -v
+```
+
+The suite uses only the standard library and finishes in under 30 seconds. No
+installation, GPU, admin rights, pywebview, or internet connection is needed.
+HTTP tests use temporary loopback ports. Process commands and background watchers
+are mocked, and temporary config, state, feeds, and images are isolated under
+`tests/` and cleaned up after each test. The running console is never contacted.
+GitHub Actions runs the suite on Windows with Python 3.11 and 3.13.
+
 ## Ideas welcome
 
 Other GPU vendors (AMD/Intel), Linux and macOS ports, more feed examples (ComfyUI, kohya, Houdini, Unreal), and themes. Open an issue or a pull request.

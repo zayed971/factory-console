@@ -52,8 +52,10 @@ DEFAULTS = {
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        json.dump(DEFAULTS, open(CONFIG_FILE, "w", encoding="utf-8"), indent=2)
-    user = json.load(open(CONFIG_FILE, encoding="utf-8-sig"))     # -sig: Windows PowerShell 5.1 writes a BOM
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULTS, f, indent=2)
+    with open(CONFIG_FILE, encoding="utf-8-sig") as f:     # -sig: Windows PowerShell 5.1 writes a BOM
+        user = json.load(f)
     cfg = json.loads(json.dumps(DEFAULTS)); cfg.update(user)
     cfg["shell"] = {**DEFAULTS["shell"], **(user.get("shell") or {})}
     return cfg
@@ -245,7 +247,7 @@ def jobs(max_age=15):
     for r in rows:
         r["log"] = last_log_line(r.get("action") or "")
     rank = {"Running": 0, "Queued": 1, "Ready": 2, "Disabled": 3}
-    rows.sort(key=lambda r: (rank.get(str(r.get("state")), 2), "".join(chr(255 - ord(ch)) for ch in (r.get("last") or ""))))   # running first, then newest run first
+    rows.sort(key=lambda r: (rank.get(str(r.get("state")), 2), not bool(r.get("last")), "".join(chr(255 - ord(ch)) for ch in (r.get("last") or ""))))   # running first, then newest run first; never-run last
     JOBS_CACHE.update(t=time.time(), rows=rows)
     return rows
 
@@ -272,7 +274,8 @@ def write_feed(d):
     except (TypeError, ValueError):
         pass
     tmp = os.path.join(FEEDS_DIR, _slug(row["name"]) + ".json.tmp")
-    json.dump(row, open(tmp, "w", encoding="utf-8"))
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(row, f)
     os.replace(tmp, os.path.join(FEEDS_DIR, _slug(row["name"]) + ".json"))
     return row
 
@@ -282,7 +285,8 @@ def read_feeds(max_age_h=24):
     rows = []
     for p in glob.glob(os.path.join(FEEDS_DIR, "*.json")):
         try:
-            d = json.load(open(p, encoding="utf-8"))
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
         except Exception:
             continue
         age = time.time() - float(d.get("updated") or os.path.getmtime(p))
@@ -301,11 +305,13 @@ def read_feeds(max_age_h=24):
 
 def last_log_line(action):
     """find the script a task runs and the log it writes ('$log = "...\\x.log"' lines in the .ps1), return its last line"""
-    m = re.search(r"-File\s+(\S+\.ps1)", action)
-    if not m or not os.path.exists(m.group(1)):
+    m = re.search(r'-File\s+(?:"([^"]+\.ps1)"|(\S+\.ps1))', action, re.I)
+    path = (m.group(1) or m.group(2)) if m else ""
+    if not path or not os.path.exists(path):
         return ""
     try:
-        src = open(m.group(1), encoding="utf-8", errors="replace").read()
+        with open(path, encoding="utf-8", errors="replace") as f:
+            src = f.read()
     except Exception:
         return ""
     logs = re.findall(r"\$log\s*=\s*['\"]([^'\"]+\.log)['\"]", src)
@@ -335,8 +341,16 @@ def render_dirs(rows, any_age=False):
         cl = r.get("CommandLine") or ""
         if (r.get("Name") or "").lower() not in ("blender.exe", "python.exe", "pwsh.exe", "ffmpeg.exe"):
             continue
-        for m in re.finditer(r"(?:--out|--render|-o)\s+\"?([A-Za-z]:\\[^\"]+?)(?:\\c_#+|\\f_#+|\\#+|\")?(?:\s|$)", cl):
-            p = m.group(1).rstrip("\\")
+        paths = [m.group(1) or m.group(2) for m in re.finditer(
+            r'(?:^|\s)(?:--out|--render|-o)\s+(?:"([A-Za-z]:\\[^"]+)"|([A-Za-z]:\\[^\s"]+))', cl)]
+        if (r.get("Name") or "").lower() == "ffmpeg.exe":
+            # ffmpeg's final output is positional, unlike Blender's -o option.
+            args = [m.group(1) if m.group(1) is not None else m.group(2)
+                    for m in re.finditer(r'"([^"]*)"|(\S+)', cl)]
+            if len(args) > 1 and args[-2] != "-i" and re.match(r"^[A-Za-z]:\\", args[-1]) and args[-1].lower().endswith(IMG + (".exr",)):
+                paths.append(args[-1])
+        for p in paths:
+            p = p.rstrip("\\")
             if os.path.isdir(p):
                 dirs.add(p)
             elif os.path.isdir(os.path.dirname(p)):
@@ -410,16 +424,19 @@ LOCK = threading.Lock()
 
 def _state():
     try:
-        return json.load(open(STATE_FILE, encoding="utf-8"))
+        with open(STATE_FILE, encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
         return {"game_mode": False, "suspended": [], "restart_tasks": [], "since": None, "reason": None, "auto": True, "log": []}
 
 
 def _save(st):
     st["log"] = st.get("log", [])[-40:]
-    json.dump(st, open(STATE_FILE, "w", encoding="utf-8"), indent=1)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(st, f, indent=1)
     if FLAG_FILE:
-        json.dump({"game_mode": st["game_mode"], "since": st["since"], "reason": st["reason"]}, open(FLAG_FILE, "w", encoding="utf-8"))
+        with open(FLAG_FILE, "w", encoding="utf-8") as f:
+            json.dump({"game_mode": st["game_mode"], "since": st["since"], "reason": st["reason"]}, f)
 
 
 def _note(st, msg):
@@ -623,7 +640,8 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 
     def _img(self, path):
-        return self._send(200, open(path, "rb").read(), "image/png" if path.lower().endswith(".png") else "image/jpeg")
+        with open(path, "rb") as f:
+            return self._send(200, f.read(), "image/png" if path.lower().endswith(".png") else "image/jpeg")
 
     def do_GET(self):
         u = urlparse(self.path)
