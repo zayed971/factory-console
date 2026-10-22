@@ -1,0 +1,46 @@
+{
+  "title": "Factory",
+  "host": "127.0.0.1",
+  "port": 8787,
+  "disks": "auto",
+  "games": [
+    "VALORANT-Win64-Shipping.exe",
+    "cs2.exe",
+    "FortniteClient-Win64-Shipping.exe",
+    "r5apex.exe",
+    "r5apex_dx12.exe",
+    "LeagueofLegends.exe",
+    "RocketLeague.exe",
+    "Overwatch.exe",
+    "dota2.exe",
+    "GTA5.exe",
+    "eldenring.exe",
+    "bf2042.exe"
+  ],
+  "resume_after_s": 30,
+  "pausable_names": [
+    "blender.exe",
+    "ffmpeg.exe"
+  ],
+  "factory_paths": [],
+  "never_pause": [
+    "factory_console"
+  ],
+  "extra_frame_globs": [],
+  "task_folder": "",
+  "ledger": "",
+  "ledger_needs_status": "needs-you",
+  "game_mode_flag": "",
+  "stop_ollama_in_game": false,
+  "ollama_app": "",
+  "feeds_dir": "",
+  "shell": {
+    "width": 1240,
+    "height": 740,
+    "hotkey": "ctrl+alt+f",
+    "dwell_ms": 220,
+    "hide_after_ms": 450,
+    "pill_width": 180,
+    "server_task": ""
+  }
+}
