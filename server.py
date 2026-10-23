@@ -483,6 +483,29 @@ def game_on(reason):
         return st
 
 
+def game_sweep():
+    """while game mode is on, also freeze work processes that STARTED after it was switched on.
+    10-23: a Blender render launched mid-game by a scheduled task ran at 100% GPU next to CS2, because game_on only froze
+    the processes that existed at that moment."""
+    with LOCK:
+        st = _state()
+        if not st["game_mode"]:
+            return 0
+        known = {p["pid"] for p in st.get("suspended", [])}
+        PROC_CACHE["t"] = 0
+        new = []
+        for r in factory_procs(processes(0)):
+            if r["ProcessId"] in known:
+                continue
+            if _sr(r["ProcessId"], ntdll.NtSuspendProcess):
+                new.append({"pid": r["ProcessId"], "name": r["Name"], "cmd": (r.get("CommandLine") or "")[:160]})
+        if new:
+            st.setdefault("suspended", []).extend(new)
+            _note(st, "GAME MODE: froze %d work process(es) that started during the game" % len(new))
+            _save(st)
+        return len(new)
+
+
 def game_off(reason):
     with LOCK:
         st = _state()
@@ -549,10 +572,14 @@ def task_of(pid, by_pid):
 def auto_loop():
     """watch for games: on start -> game mode on; gone for resume_after_s -> off (only if game mode was switched on automatically)"""
     gone_since = None
+    tick = 0
     while True:
         try:
             st = _state()
             g = games_fast()
+            tick += 1
+            if st["game_mode"] and tick % 5 == 0:   # every ~15 s: catch work that started after game mode came on
+                game_sweep()
             if g and not st["game_mode"] and st.get("auto", True):
                 game_on("auto: " + ", ".join(g)); gone_since = None
             elif not g and st["game_mode"] and (st.get("reason") or "").startswith("auto"):
@@ -700,6 +727,9 @@ class H(BaseHTTPRequestHandler):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 if n > 65536:
+                    if n <= 1 << 20:   # read the unread body first: Windows resets a socket closed with data pending, so the client saw no 413
+                        self.rfile.read(n)
+                    self.close_connection = True
                     return self._send(413, '{"error":"too big"}')
                 return self._send(200, json.dumps(write_feed(json.loads(self.rfile.read(n) or b"{}"))))
             except Exception as e:
