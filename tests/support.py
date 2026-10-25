@@ -26,7 +26,7 @@ class IsolatedTest(unittest.TestCase):
         # the restricted Windows sandbox token from its own new directory.
         self.home = ROOT / "tests" / ("fixture-" + uuid.uuid4().hex)
         self.home.mkdir()
-        self.addCleanup(shutil.rmtree, self.home)
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
         for name in ("run", "Popen"):
             self.enterContext(patch.object(subprocess, name, side_effect=AssertionError("process command forbidden")))
         shutil.copyfile(ROOT / "server.py", self.home / "server.py")
