@@ -1,5 +1,7 @@
+import gc
 import json
 import sqlite3
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -175,10 +177,29 @@ class LedgerInfoTests(IsolatedTest):
         self.assertEqual(len(out["events"][1]["msg"]), 200)
 
     def test_ledger_bad_database_reports_error(self):
-        bad = self.home / "bad.db"
-        bad.write_bytes(b"not a database at all")
-        self.server.CFG["ledger"] = str(bad)
-        self.assertIn("error", self.server.ledger())
+        # ledger() does not close its connection when a query fails, and Windows cannot delete an open SQLite file:
+        # record every connection it opens, close them from here, and keep the bad file in a forgiving temp folder.
+        real_connect = sqlite3.connect
+        opened = []
+
+        def tracking_connect(*args, **kwargs):
+            conn = real_connect(*args, **kwargs)
+            opened.append(conn)
+            return conn
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+            bad = Path(d) / "bad.db"
+            bad.write_bytes(b"not a database at all")
+            self.server.CFG["ledger"] = str(bad)
+            try:
+                with patch.object(self.server.sqlite3, "connect", side_effect=tracking_connect):
+                    result = self.server.ledger()
+            finally:
+                for conn in opened:
+                    conn.close()
+                gc.collect()
+        self.assertIn("error", result)
+        self.assertEqual(len(opened), 1)
 
     def test_info_features(self):
         self.server.CFG.update(task_folder="", ledger="")
